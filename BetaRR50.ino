@@ -1,63 +1,105 @@
 #include <ArduinoBLE.h>
-#include "Arduino_LED_Matrix.h"   // LED_Matrix library einbinden
-#include "frames.h"               // Header-Datei mit benutzerdefinierten Frames einbinden
+#include "ArduinoGraphics.h"
+#include "Arduino_LED_Matrix.h"
+#include "Frames.h"
+#include "version_info.ino"  // Einbinden der Versionsdatei
 
-BLEService ledService("19b10000-e8f2-537e-4f6c-d104768a1214"); // Custom service UUID
-BLEByteCharacteristic switchCharacteristic("19b10001-e8f2-537e-4f6c-d104768a1214", BLERead | BLEWrite);
+ArduinoLEDMatrix matrix;
 
-ArduinoLEDMatrix matrix;          // Instanz der ArduinoLEDMatrix-Klasse erstellen
+const int ledPin = LED_BUILTIN;
+
+BLEService arrowService("19B10010-E8F2-537E-4F6C-D104768A1214"); // BLE Service
+
+BLEByteCharacteristic leftArrowCharacteristic("19B10011-E8F2-537E-4F6C-D104768A1214", BLEWrite); // Characteristic for left arrow
+BLEByteCharacteristic rightArrowCharacteristic("19B10012-E8F2-537E-4F6C-D104768A1214", BLEWrite); // Characteristic for right arrow
+BLEStringCharacteristic firmwareVersionCharacteristic("19B10013-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite, 20); // Characteristic for firmware version
+BLEStringCharacteristic firmwareDataCharacteristic("19B10014-E8F2-537E-4F6C-D104768A1214", BLEWrite, 512); // Characteristic for firmware data
+
+const char* currentFirmwareVersion = "V1.0"; // Current firmware version
+
+unsigned long arrowDisplayStartTime = 0;
+bool displayingArrow = false;
 
 void setup() {
-  Serial.begin(9600);
-  while (!Serial);
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
 
+  matrix.begin();
+
+  // Display initial message
+  matrix.beginDraw();
+  matrix.stroke(0xFFFFFFFF);
+  matrix.textScrollSpeed(100);
+
+  const char text[] = "  Beta rr 50   Ready!  ";
+  matrix.textFont(Font_4x6);
+  matrix.beginText(0, 1, 0xFFFFFF);
+  matrix.println(text);
+  matrix.endText(SCROLL_LEFT);
+
+  matrix.endDraw();
+
+  // Begin initialization of BLE
   if (!BLE.begin()) {
-    Serial.println("Starting BLE failed!");
     while (1);
   }
 
-  BLE.setLocalName("Arduino");
-  BLE.setAdvertisedService(ledService);
+  BLE.setLocalName("BetaRR50");
+  BLE.setAdvertisedService(arrowService);
 
-  ledService.addCharacteristic(switchCharacteristic);
-  BLE.addService(ledService);
+  arrowService.addCharacteristic(leftArrowCharacteristic);
+  arrowService.addCharacteristic(rightArrowCharacteristic);
+  arrowService.addCharacteristic(firmwareVersionCharacteristic);
+  arrowService.addCharacteristic(firmwareDataCharacteristic);
 
-  switchCharacteristic.writeValue(0);
+  BLE.addService(arrowService);
+
+  leftArrowCharacteristic.writeValue(0);
+  rightArrowCharacteristic.writeValue(0);
+  firmwareVersionCharacteristic.writeValue(currentFirmwareVersion);
 
   BLE.advertise();
-  Serial.println("BLE LED Peripheral advertising as ArduinoLED");
-
-  matrix.begin();  // LED-Matrix initialisieren
 }
 
 void loop() {
   BLEDevice central = BLE.central();
 
   if (central) {
-    Serial.print("Connected to central: ");
-    Serial.println(central.address());
-
     while (central.connected()) {
-      if (switchCharacteristic.written()) {
-        if (switchCharacteristic.value()) {
-          showRight();
-        } else {
-          showLeft();
-        }
+      if (leftArrowCharacteristic.written() && leftArrowCharacteristic.value()) {
+        matrix.loadFrame(left_frame);
+        // Turn off the display
+        delay(5000);
+        matrix.clear();
+      }
+      if (rightArrowCharacteristic.written() && rightArrowCharacteristic.value()) {
+        matrix.loadFrame(right_frame);
+        // Turn off the display
+        delay(5000);
+        matrix.clear();
+      }
+      if (firmwareDataCharacteristic.written()) {
+        String firmwareData = firmwareDataCharacteristic.value();
+        // Handle received firmware data
+        processFirmwareData(firmwareData);
       }
     }
+  }
+  
+  // Blink the Bluetooth logo if no arrow is displayed
+  if (!displayingArrow) {
+    matrix.loadFrame(bluetooth_logo);
+    delay(1000);  // Pause for 1 second
 
-    Serial.print("Disconnected from central: ");
-    Serial.println(central.address());
+    // Turn off the display
+    matrix.clear();
+    delay(1000);
   }
 }
 
-void showRight() {
-  Serial.println("Displaying Right");
-  matrix.loadFrame(Right);  // Lade und zeige das Herz-Frame
-}
-
-void showLeft() {
-  Serial.println("Displaying Left");
-  matrix.loadFrame(Left);  // Lade und zeige das Left-Frame
+void processFirmwareData(const String &data) {
+  // This is where you'd handle the received firmware data and write it to the appropriate storage
+  // For now, we'll just print it to the serial console
+  Serial.println("Received firmware data:");
+  Serial.println(data);
 }
